@@ -1,0 +1,30 @@
+# Agents to benchmark. Each one runs twice: <name>+skills and <name>-noskills.
+# Agent runs use your normal `claude` setup (gateway URL + token from your environment).
+
+[defaults]
+runs = 3                              # executions per agent per arm per eval
+timeout_s = 900                       # per agent run
+claude_bin = "claude"
+tools = ["Read", "Glob", "Grep"]      # read-only; "Skill" is added automatically in the +skills arm
+extra_args = []                       # passed to every `claude -p` call, e.g. ["--max-turns", "20"]
+
+# Who scores `check = "llm"` criteria:
+#   "panel"      every OTHER model in this file judges, scores are averaged (a model never grades itself
+#                unless it is the only model defined)
+#   "<agent>"    one fixed agent from this file
+#   "none"       skip llm criteria
+judge = "panel"
+judge_tools = []                      # [] = judge sees only the task + answer; ["Read","Glob","Grep"] lets it check files
+judge_timeout_s = 300
+
+# Optional env vars for every call (e.g. if your gateway needs them set explicitly)
+[env]
+# ANTHROPIC_BASE_URL = "https://llm-gateway.example.internal"
+
+[agents.gemma_26b]
+model = "gemma-4-26b"                 # the exact model id your gateway expects (`/model` in claude shows it)
+
+[agents.gemma_31b]
+model = "gemma-4-31b"
+# env = { SOME_VAR = "only for this agent" }
+# extra_args = ["--effort", "low"]

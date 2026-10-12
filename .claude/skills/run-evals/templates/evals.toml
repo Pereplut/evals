@@ -1,0 +1,56 @@
+# Each [[eval]] is one prompt plus the criteria it is scored on.
+# Its position (1, 2, ...) is the number in output file names: outputs/eval_2_gemma_26b+skills_r1.md
+#
+# Agents run read-only in your project folder; the final answer of each run is saved
+# to outputs/ and every criterion is checked against it.
+#
+# check types:
+#   regex  pattern = "...", optional negate = true      -> true/false   (free, deterministic)
+#   cmd    run = "shell command"; exit 0 = pass         -> true/false
+#          placeholders: {output} answer file, {project} project root, {evals} this folder
+#   llm    rubric = "...", optional reference = "..."   -> confidence 0.00-1.00 (judged)
+
+[[eval]]
+name = "explain_entrypoint"
+prompt = """
+Find the main entry point of this project and explain in 5 bullet points what happens
+when it runs. Name the file and the function.
+"""
+
+  [[eval.criteria]]
+  name = "names_a_python_file"
+  check = "regex"
+  pattern = '\w+\.py'
+
+  [[eval.criteria]]
+  name = "five_bullets"
+  check = "cmd"
+  run = "test $(grep -cE '^\\s*([-*]|[0-9]+\\.)\\s' {output}) -eq 5"
+
+  [[eval.criteria]]
+  name = "accurate_and_specific"
+  check = "llm"
+  rubric = "The explanation is concrete (names real files/functions) and does not invent behaviour."
+
+
+[[eval]]
+name = "review_for_bugs"
+prompt = """
+Review src/ for the single most likely bug. Quote the line, explain why it is wrong
+and propose a fix as a Python code block.
+"""
+
+  [[eval.criteria]]
+  name = "has_python_code_block"
+  check = "regex"
+  pattern = '```python'
+
+  [[eval.criteria]]
+  name = "fix_is_valid_python"
+  check = "cmd"
+  run = "python3 {evals}/checks/code_block_compiles.py {output}"
+
+  [[eval.criteria]]
+  name = "bug_is_real"
+  check = "llm"
+  rubric = "The reported issue is a genuine bug, not a style nit, and the fix addresses it."
