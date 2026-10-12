@@ -1,0 +1,68 @@
+# Each [[eval]] is one prompt plus the criteria it is scored on.
+# Its position (1, 2, ...) is the number in output file names: outputs/eval_2_gemma_26b+skills_r1.md
+#
+# check types:
+#   regex  pattern = '...', optional negate = true     -> true/false   (free, deterministic)
+#   cmd    run = "shell command"; exit 0 = pass        -> true/false
+#          placeholders: {output} answer file, {project} project root, {evals} this folder
+#   llm    rubric = "...", optional reference = "..."  -> confidence 0.00-1.00 (judged)
+#
+# Prompts deliberately don't mention the read-spec skill or spec.py: the eval measures whether
+# the agent finds and uses the skill on its own.
+
+
+# ---------------------------------------------------------------- 1: document version
+[[eval]]
+name = "spec_version"
+prompt = """
+Check the file device_spec.pdf in this project and tell me which version of the
+specification it is. End your answer with a single line in exactly this format:
+VERSION: <version>
+"""
+
+  [[eval.criteria]]
+  name = "version_is_1_9b"
+  check = "regex"
+  pattern = '(?im)^\s*\**VERSION:\**\s*`?v?1\.9b`?\s*$'
+
+  [[eval.criteria]]
+  name = "version_justified"
+  check = "llm"
+  rubric = """The answer identifies the document's own current version and supports it with evidence
+from the document (title page, header/footer or the latest change-history entry). It does not
+present an older version listed in the change history as the current one."""
+  reference = "The current version is 1.9b."
+
+
+# ---------------------------------------------------------------- 2: changes in 1.9a
+[[eval]]
+name = "changes_1_9a"
+prompt = """
+In device_spec.pdf, find the Change history section and list every change made in
+version 1.9a. Use one bullet per change and include nothing from other versions.
+"""
+
+  [[eval.criteria]]
+  name = "bullet_list"
+  check = "regex"
+  pattern = '(?m)^\s*([-*•]|\d+\.)\s+\S'
+
+  [[eval.criteria]]
+  name = "all_1_9a_changes_present"
+  check = "cmd"
+  run = "python3 {evals}/checks/keywords_present.py {output} {evals}/golden/changes_1_9a.txt"
+
+  [[eval.criteria]]
+  name = "only_1_9a_changes"
+  check = "llm"
+  rubric = """The answer lists only changes belonging to version 1.9a. It includes nothing from
+1.9b, 1.8 or any other version."""
+  reference = """TODO: paste the 1.9a rows of the Change history table here, and name the
+neighbouring versions (e.g. 1.9b, 1.8) so the judge can spot leaks."""
+
+  [[eval.criteria]]
+  name = "faithful_to_document"
+  check = "llm"
+  rubric = """Every bullet corresponds to a real 1.9a entry in the change history. Nothing is
+invented, and key details (register names, values, section numbers) are preserved."""
+  reference = """TODO: same text as above."""
