@@ -1,0 +1,6 @@
+# One line per 1.9a change from the Change history: a short, distinctive keyword or phrase
+# that any correct answer must contain. Use | for alternatives. Lines starting with # are ignored.
+# Example (replace with your document's real entries):
+# 0x2A | TEMP_LIMIT
+# 115200
+# SPI mode 3

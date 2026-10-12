@@ -22,19 +22,19 @@ Benchmarks Claude Code agents **with vs without your Skills**. It needs only Pyt
 Before the first real run, do a cheap smoke test:
 
 ```
-python3 .claude/skills/run-evals/run_evals.py gemma_26b --runs 1 --evals explain_entrypoint --no-judge
+python3 .claude/skills/run-evals/run_evals.py gemma_26b --runs 1 --evals spec_version --no-judge
 ```
 
 ## How the arms differ
 
 | | `+skills` | `-noskills` |
 |---|---|---|
-| tools | Read, Glob, Grep, **Skill** | Read, Glob, Grep |
+| tools | `defaults.tools` + **Skill** | `defaults.tools` |
 | flags | — | `--disable-slash-commands --disallowedTools Skill` |
 
 Both arms set `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1`, so only your own skills make a difference.
 
-Agents are read-only and use `--permission-mode dontAsk`. A skill that needs Bash will be denied. If you want to allow it, add Bash to `defaults.tools`.
+Runs are unattended (`--permission-mode dontAsk`): only `defaults.allowed_tools` run, everything else is denied. The template allows `Bash(python3 *)` so skills with scripts (like `read-spec`) work. Both arms get the same tools, so the Skill tool is the only difference.
 
 The `run-evals` skill itself has `disable-model-invocation: true`, so the `+skills` agents never see it.
 

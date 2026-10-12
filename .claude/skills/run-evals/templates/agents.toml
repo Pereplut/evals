@@ -5,7 +5,10 @@
 runs = 3                              # executions per agent per arm per eval
 timeout_s = 900                       # per agent run
 claude_bin = "claude"
-tools = ["Read", "Glob", "Grep"]      # read-only; "Skill" is added automatically in the +skills arm
+tools = ["Read", "Glob", "Grep", "Bash"]   # tools the agent can see; "Skill" is added in the +skills arm
+# What runs without asking. Anything else is denied (runs are unattended). Both arms get the same
+# tools, so the only difference between them is the Skill tool. Omit to pre-approve all of `tools`.
+allowed_tools = ["Read", "Glob", "Grep", "Bash(python3 *)", "Bash(pdftotext *)"]
 extra_args = []                       # passed to every `claude -p` call, e.g. ["--max-turns", "20"]
 
 # Who scores `check = "llm"` criteria:

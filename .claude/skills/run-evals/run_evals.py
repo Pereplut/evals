@@ -113,14 +113,15 @@ def load_evals(path: Path) -> list[Eval]:
 
 def run_claude(cfg: dict, model: str, prompt: str, *, skills: bool, tools: list[str],
                cwd: Path, env_extra: dict, extra_args: list, timeout: int,
-               transcript: Path | None = None) -> dict:
+               allowed: list[str] | None = None, transcript: Path | None = None) -> dict:
     tool_list = list(tools) + (["Skill"] if skills else [])
+    allow_list = (list(allowed) if allowed is not None else list(tools)) + (["Skill"] if skills else [])
     cmd = [cfg["claude_bin"], "-p", "--model", model,
            "--output-format", "stream-json", "--verbose",
            "--permission-mode", "dontAsk",          # anything that would prompt is denied
            "--tools", ",".join(tool_list)]
-    if tool_list:
-        cmd += ["--allowedTools", ",".join(tool_list)]
+    if allow_list:
+        cmd += ["--allowedTools", *allow_list]   # one argv per rule; anything else is denied (dontAsk)
     if not skills:
         cmd += ["--disable-slash-commands", "--disallowedTools", "Skill"]
     cmd += list(extra_args)
@@ -431,9 +432,10 @@ def main() -> None:
     if args.dry_run:
         n, ev, ag, arm, skills = plan[0]
         log("first command (prompt is sent on stdin):")
-        tl = cfg["tools"] + (["Skill"] if skills else [])
+        sk = ["Skill"] if skills else []
+        tl, al = cfg["tools"] + sk, (cfg.get("allowed_tools") or cfg["tools"]) + sk
         log(f"  {cfg['claude_bin']} -p --model {ag.model} --output-format stream-json --verbose "
-            f"--permission-mode dontAsk --tools {','.join(tl)} --allowedTools {','.join(tl)} {' '.join(ag.extra_args)}")
+            f"--permission-mode dontAsk --tools {','.join(tl)} --allowedTools {shlex.join(al)} {' '.join(ag.extra_args)}")
         return
 
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -453,7 +455,7 @@ def main() -> None:
         stem = f"eval_{ev.idx}_{label}_r{n}"
         r = run_claude(cfg, ag.model, ev.prompt, skills=skills, tools=cfg["tools"], cwd=project,
                        env_extra=ag.env, extra_args=ag.extra_args, timeout=int(cfg["timeout_s"]),
-                       transcript=out_dir / "transcripts" / f"{stem}.jsonl")
+                       allowed=cfg.get("allowed_tools"), transcript=out_dir / "transcripts" / f"{stem}.jsonl")
         output_file = out_dir / "outputs" / f"{stem}.md"
         output_file.write_text(r["text"])
         crits = []
