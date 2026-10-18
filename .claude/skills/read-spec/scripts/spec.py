@@ -65,7 +65,9 @@ def via_stdlib(pdf: Path) -> list[str]:
                 if f in (b"ASCII85Decode", b"A85"):
                     body = base64.a85decode(body.strip().removeprefix(b"<~").removesuffix(b"~>"))
                 elif f in (b"FlateDecode", b"Fl"):
-                    body = zlib.decompress(body)
+                    # decompressobj: _STREAM trims whitespace before `endstream`, which can cut the
+                    # trailing checksum; the data itself still decodes without it
+                    body = zlib.decompressobj().decompress(body)
                 else:
                     raise ValueError(f)  # images / unsupported filters
         except (ValueError, zlib.error):
