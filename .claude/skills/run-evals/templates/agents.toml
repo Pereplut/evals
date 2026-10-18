@@ -10,6 +10,11 @@ tools = ["Read", "Glob", "Grep", "Bash"]   # tools the agent can see; "Skill" is
 # tools, so the only difference between them is the Skill tool. Omit to pre-approve all of `tools`.
 allowed_tools = ["Read", "Glob", "Grep", "Bash(python3 *)", "Bash(pdftotext *)"]
 extra_args = []                       # passed to every `claude -p` call, e.g. ["--max-turns", "20"]
+# Shell command run before EVERY agent run, from this folder; {project} and {evals} are replaced
+# with quoted paths. Use it when agents (or the skills they run) write files into the project: a
+# converted spec left by one run would otherwise help every later run, including the -noskills arm.
+# If it fails, that run is recorded as an error. Example: setup = "python3 {evals}/make_fixture.py"
+setup = ""
 
 # Who scores `check = "llm"` criteria:
 #   "panel"      every OTHER model in this file judges, scores are averaged (a model never grades itself

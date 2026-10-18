@@ -39,6 +39,7 @@ DEFAULTS = {
     "claude_bin": "claude",
     "tools": ["Read", "Glob", "Grep"],  # agents are read-only; "Skill" is added in the +skills arm
     "extra_args": [],
+    "setup": "",                        # shell command run before every agent run ({project}, {evals})
     "judge": "panel",                   # "panel" | "none" | <agent name>
     "judge_tools": [],
     "judge_timeout_s": 300,
@@ -209,10 +210,30 @@ def check_regex(c: Criterion, text: str) -> bool:
     return hit != bool(c.spec.get("negate", False))
 
 
+def expand(cmdline: str, project: Path, cfg_dir: Path, output_file: Path | None = None) -> str:
+    if output_file is not None:
+        cmdline = cmdline.replace("{output}", shlex.quote(str(output_file)))
+    return cmdline.replace("{project}", shlex.quote(str(project))).replace("{evals}", shlex.quote(str(cfg_dir)))
+
+
+def run_setup(cmd: str, project: Path, cfg_dir: Path, timeout: int) -> str | None:
+    """Run defaults.setup before an agent run, so every run starts from the same project state
+    (files an earlier run wrote, e.g. a converted spec, would otherwise leak into later runs and
+    into the other arm). Returns an error message, or None on success."""
+    try:
+        p = subprocess.run(expand(cmd, project, cfg_dir), shell=True, cwd=cfg_dir, capture_output=True,
+                           text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return f"setup: timeout after {timeout}s"
+    if p.returncode != 0:
+        return f"setup exited {p.returncode}: {(p.stdout + p.stderr).strip()[-500:]}"
+    if not project.is_dir():
+        return f"setup: project folder {project} does not exist afterwards"
+    return None
+
+
 def check_cmd(c: Criterion, output_file: Path, project: Path, cfg_dir: Path) -> tuple[bool, str]:
-    cmdline = (c.spec["run"].replace("{output}", shlex.quote(str(output_file)))
-                            .replace("{project}", shlex.quote(str(project)))
-                            .replace("{evals}", shlex.quote(str(cfg_dir))))
+    cmdline = expand(c.spec["run"], project, cfg_dir, output_file)
     try:
         p = subprocess.run(cmdline, shell=True, cwd=project, capture_output=True, text=True,
                            timeout=int(c.spec.get("timeout_s", 120)))
@@ -244,9 +265,12 @@ Reply with ONLY this JSON, no prose, no code fences:
 
 
 def judge_prompt(ev: Eval, crits: list[Criterion], answer: str) -> str:
+    """Number the llm criteria 1..n, as the reply format shows; judge_scores maps them back.
+    (Numbering them by their position among ALL criteria made judges answer "id": 1 for a
+    criterion listed as 2., and the score was lost.)"""
     lines = []
-    for c in crits:
-        line = f"{c.idx}. {c.name}: {c.spec.get('rubric', c.name)}"
+    for n, c in enumerate(crits, 1):
+        line = f"{n}. {c.name}: {c.spec.get('rubric', c.name)}"
         if c.spec.get("reference"):
             line += f"\n   Reference answer: {c.spec['reference']}"
         lines.append(line)
@@ -268,6 +292,12 @@ def parse_judge(text: str, ids: list[int]) -> dict[int, dict]:
             if m:
                 scores[i] = {"confidence": clamp(float(m.group(1))), "reason": "(parsed leniently)"}
     return scores
+
+
+def judge_scores(text: str, crits: list[Criterion]) -> dict[int, dict]:
+    """Scores keyed by Criterion.idx, from a reply that numbers the criteria 1..n."""
+    by_pos = parse_judge(text, list(range(1, len(crits) + 1)))
+    return {c.idx: by_pos[n] for n, c in enumerate(crits, 1) if n in by_pos}
 
 
 def clamp(x: float) -> float:
@@ -428,7 +458,7 @@ def main() -> None:
     plan = [(n, ev, ag, arm, skills) for n in range(1, runs + 1) for ev in evals
             for ag in selected for arm, skills in ARMS]   # interleaved so drift hits all arms equally
     log(f"{len(plan)} agent runs: {len(selected)} agent(s) × 2 arms × {len(evals)} eval(s) × {runs} run(s); "
-        f"judge={cfg['judge']}; project={project}")
+        f"judge={cfg['judge']}; project={project}" + (f"; setup before each run: {cfg['setup']}" if cfg["setup"] else ""))
     if args.dry_run:
         n, ev, ag, arm, skills = plan[0]
         log("first command (prompt is sent on stdin):")
@@ -453,9 +483,14 @@ def main() -> None:
     for i, (n, ev, ag, arm, skills) in enumerate(plan, 1):
         label = f"{ag.name}+skills" if skills else f"{ag.name}-noskills"
         stem = f"eval_{ev.idx}_{label}_r{n}"
-        r = run_claude(cfg, ag.model, ev.prompt, skills=skills, tools=cfg["tools"], cwd=project,
-                       env_extra=ag.env, extra_args=ag.extra_args, timeout=int(cfg["timeout_s"]),
-                       allowed=cfg.get("allowed_tools"), transcript=out_dir / "transcripts" / f"{stem}.jsonl")
+        setup_error = run_setup(cfg["setup"], project, cfg_dir, int(cfg["timeout_s"])) if cfg["setup"] else None
+        if setup_error:
+            r = {"cmd": None, "wall_s": 0, "returncode": None, "skills_used": [], "error": setup_error, "text": "",
+                 "duration_s": 0, "tokens_total": 0, "tokens_output": 0, "usage_detail": {}}
+        else:
+            r = run_claude(cfg, ag.model, ev.prompt, skills=skills, tools=cfg["tools"], cwd=project,
+                           env_extra=ag.env, extra_args=ag.extra_args, timeout=int(cfg["timeout_s"]),
+                           allowed=cfg.get("allowed_tools"), transcript=out_dir / "transcripts" / f"{stem}.jsonl")
         output_file = out_dir / "outputs" / f"{stem}.md"
         output_file.write_text(r["text"])
         crits = []
@@ -499,7 +534,7 @@ def main() -> None:
                 jr = run_claude(cfg, j.model, judge_prompt(ev, llm_crits, answer), skills=False,
                                 tools=cfg["judge_tools"], cwd=project, env_extra=j.env,
                                 extra_args=j.extra_args, timeout=int(cfg["judge_timeout_s"]))
-                scores = {} if jr["error"] else parse_judge(jr["text"], [c.idx for c in llm_crits])
+                scores = {} if jr["error"] else judge_scores(jr["text"], llm_crits)
                 for c in rec["criteria"]:
                     if c["check"] == "llm":
                         c.setdefault("judges", {})[j.name] = scores.get(c["idx"])

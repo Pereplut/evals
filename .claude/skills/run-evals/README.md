@@ -38,6 +38,19 @@ Runs are unattended (`--permission-mode dontAsk`): only `defaults.allowed_tools`
 
 The `run-evals` skill itself has `disable-model-invocation: true`, so the `+skills` agents never see it.
 
+## A fresh project for every run
+
+All runs share the `--project` folder. If an agent, or a skill script it runs, writes a file there,
+every later run sees it. A spec converted to text by `read-spec` in the first `+skills` run would
+help every `-noskills` run after it. Set `defaults.setup` to a command that rebuilds the project:
+
+```toml
+setup = "python3 {evals}/make_fixture.py"   # runs from the config folder before every agent run
+```
+
+`{project}` and `{evals}` are replaced with quoted paths, as in `cmd` checks. A failing setup
+records that run as an error, and the agent is not started.
+
 ## Output
 
 The script writes everything to `evals/results/<timestamp>/`:
