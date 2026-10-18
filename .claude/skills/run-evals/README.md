@@ -51,6 +51,31 @@ setup = "python3 {evals}/make_fixture.py"   # runs from the config folder before
 `{project}` and `{evals}` are replaced with quoted paths, as in `cmd` checks. A failing setup
 records that run as an error, and the agent is not started.
 
+## Keep the arms apart
+
+Removing the Skill tool doesn't hide the skills' files. A `-noskills` agent that runs `ls` or
+`find` can read `SKILL.md`, the reference files and the scripts directly, and it often does when
+the task asks for a format a skill defines. Agents can also read anything else your user can,
+including golden answers. Close both paths for the `-noskills` arm:
+
+- **File tools** (Read, Grep, Glob): `Read(...)` deny rules, and
+  `permissions.blockReadsOutsideWorkingDirectories` for everything outside the project.
+- **Bash**: deny rules don't reach a `python3` script that opens files itself. Turn on the Bash
+  sandbox and list the paths in `sandbox.filesystem.denyRead`. On Linux and WSL2 it needs
+  `bubblewrap` and `socat`; `failIfUnavailable` makes runs fail instead of running unsandboxed.
+
+```toml
+noskills_extra_args = ["--settings", '''{"permissions": {"blockReadsOutsideWorkingDirectories": true,
+  "deny": ["Read(./.claude/skills/**)"]}, "sandbox": {"enabled": true, "allowUnsandboxedCommands": false,
+  "failIfUnavailable": true, "filesystem": {"denyRead": ["~/", "{project}/.claude/skills"], "allowRead": ["{project}"]}}}''']
+```
+
+`{project}` and `{evals}` are replaced with absolute paths in `extra_args`, `skills_extra_args` and
+`noskills_extra_args`. `claude` keeps only the last `--settings` flag, so give each arm its whole
+settings JSON in one flag. Check the boundary before a real run: give both arms a prompt that tries
+to read a skill file with Read, `ls` and `python3`, and confirm the transcripts show it denied in
+the `-noskills` arm only.
+
 ## Output
 
 The script writes everything to `evals/results/<timestamp>/`:

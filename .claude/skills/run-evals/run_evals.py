@@ -39,6 +39,8 @@ DEFAULTS = {
     "claude_bin": "claude",
     "tools": ["Read", "Glob", "Grep"],  # agents are read-only; "Skill" is added in the +skills arm
     "extra_args": [],
+    "skills_extra_args": [],            # added in the +skills arm only (after extra_args)
+    "noskills_extra_args": [],          # added in the -noskills arm only
     "setup": "",                        # shell command run before every agent run ({project}, {evals})
     "judge": "panel",                   # "panel" | "none" | <agent name>
     "judge_tools": [],
@@ -214,6 +216,11 @@ def expand(cmdline: str, project: Path, cfg_dir: Path, output_file: Path | None 
     if output_file is not None:
         cmdline = cmdline.replace("{output}", shlex.quote(str(output_file)))
     return cmdline.replace("{project}", shlex.quote(str(project))).replace("{evals}", shlex.quote(str(cfg_dir)))
+
+
+def expand_args(args: list, project: Path, cfg_dir: Path) -> list[str]:
+    """{project} and {evals} in claude arguments, unquoted: they are argv entries, not shell text."""
+    return [str(a).replace("{project}", str(project)).replace("{evals}", str(cfg_dir)) for a in args]
 
 
 def run_setup(cmd: str, project: Path, cfg_dir: Path, timeout: int) -> str | None:
@@ -455,6 +462,10 @@ def main() -> None:
         cfg["judge"] = "none"
     project = args.project.resolve()
 
+    def arm_args(ag: Agent, skills: bool) -> list[str]:
+        extra = ag.extra_args + list(cfg["skills_extra_args"] if skills else cfg["noskills_extra_args"])
+        return expand_args(extra, project, cfg_dir)
+
     plan = [(n, ev, ag, arm, skills) for n in range(1, runs + 1) for ev in evals
             for ag in selected for arm, skills in ARMS]   # interleaved so drift hits all arms equally
     log(f"{len(plan)} agent runs: {len(selected)} agent(s) × 2 arms × {len(evals)} eval(s) × {runs} run(s); "
@@ -465,7 +476,8 @@ def main() -> None:
         sk = ["Skill"] if skills else []
         tl, al = cfg["tools"] + sk, (cfg.get("allowed_tools") or cfg["tools"]) + sk
         log(f"  {cfg['claude_bin']} -p --model {ag.model} --output-format stream-json --verbose "
-            f"--permission-mode dontAsk --tools {','.join(tl)} --allowedTools {shlex.join(al)} {' '.join(ag.extra_args)}")
+            f"--permission-mode dontAsk --tools {','.join(tl)} --allowedTools {shlex.join(al)} "
+            f"{shlex.join(arm_args(ag, skills))}")
         return
 
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -489,7 +501,7 @@ def main() -> None:
                  "duration_s": 0, "tokens_total": 0, "tokens_output": 0, "usage_detail": {}}
         else:
             r = run_claude(cfg, ag.model, ev.prompt, skills=skills, tools=cfg["tools"], cwd=project,
-                           env_extra=ag.env, extra_args=ag.extra_args, timeout=int(cfg["timeout_s"]),
+                           env_extra=ag.env, extra_args=arm_args(ag, skills), timeout=int(cfg["timeout_s"]),
                            allowed=cfg.get("allowed_tools"), transcript=out_dir / "transcripts" / f"{stem}.jsonl")
         output_file = out_dir / "outputs" / f"{stem}.md"
         output_file.write_text(r["text"])
@@ -533,7 +545,8 @@ def main() -> None:
                 answer = (out_dir / rec["output_file"]).read_text()
                 jr = run_claude(cfg, j.model, judge_prompt(ev, llm_crits, answer), skills=False,
                                 tools=cfg["judge_tools"], cwd=project, env_extra=j.env,
-                                extra_args=j.extra_args, timeout=int(cfg["judge_timeout_s"]))
+                                extra_args=expand_args(j.extra_args, project, cfg_dir),
+                                timeout=int(cfg["judge_timeout_s"]))
                 scores = {} if jr["error"] else judge_scores(jr["text"], llm_crits)
                 for c in rec["criteria"]:
                     if c["check"] == "llm":

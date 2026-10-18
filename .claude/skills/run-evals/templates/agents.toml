@@ -10,6 +10,12 @@ tools = ["Read", "Glob", "Grep", "Bash"]   # tools the agent can see; "Skill" is
 # tools, so the only difference between them is the Skill tool. Omit to pre-approve all of `tools`.
 allowed_tools = ["Read", "Glob", "Grep", "Bash(python3 *)", "Bash(pdftotext *)"]
 extra_args = []                       # passed to every `claude -p` call, e.g. ["--max-turns", "20"]
+# Added to one arm only, after extra_args. {project} and {evals} are replaced with absolute paths in
+# every extra_args list. Use them to keep the -noskills arm from reading your skills' files directly
+# (an agent can read anything your user can): see "Keep the arms apart" in README.md.
+# Note: claude keeps only the LAST --settings flag, so put each arm's whole settings JSON in one flag.
+skills_extra_args = []
+noskills_extra_args = []
 # Shell command run before EVERY agent run, from this folder; {project} and {evals} are replaced
 # with quoted paths. Use it when agents (or the skills they run) write files into the project: a
 # converted spec left by one run would otherwise help every later run, including the -noskills arm.
